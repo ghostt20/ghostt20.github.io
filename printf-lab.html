@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>ft_printf Lab</title>
+<style>
+:root{--bg:#070d08;--bg2:#0e1a11;--g:#39ff6a;--gd:#2a9d4b;--y:#ffd23f;--r:#ff5f56;--bd:#1d3d24;color-scheme:dark;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:inherit}
+body{margin:0;background:var(--bg);color:var(--g);font:15px/1.6 ui-monospace,"SF Mono",Menlo,Consolas,"Courier New",monospace}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);background:var(--bg);z-index:10}
+header{padding:14px 14px 4px;max-width:920px;margin:auto}
+h1{font-size:20px;margin:0;color:var(--y)}h2{color:var(--y);font-size:18px}h3{color:var(--g);font-size:15px;margin:18px 0 4px}
+h1::after{content:"█";animation:b 1s steps(1) infinite;margin-left:4px}@keyframes b{50%{opacity:0}}
+nav{position:sticky;top:env(safe-area-inset-top,0px);background:var(--bg);display:flex;gap:6px;flex-wrap:wrap;padding:8px 14px;border-bottom:1px solid var(--bd);z-index:5;max-width:920px;margin:auto}
+main{max-width:920px;margin:auto;padding:6px 14px 90px}
+button{font:inherit;background:var(--bg2);color:var(--g);border:1px solid var(--gd);padding:5px 10px;cursor:pointer;border-radius:3px}
+button:hover,button.on{background:var(--g);color:var(--bg)}
+input[type=text]{font:inherit;background:#000;color:var(--y);border:1px solid var(--gd);padding:5px 8px;width:100%;border-radius:3px}
+pre{background:#000;border:1px solid var(--bd);border-left:3px solid var(--y);padding:10px;overflow-x:auto;color:var(--g);margin:8px 0}
+.t{color:var(--y);border-bottom:1px dotted var(--y);cursor:help;font-weight:400}
+table{border-collapse:collapse;width:100%;text-align:center}td{border:1px solid var(--bd);padding:4px}
+.row{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0}
+.cell{border:1px solid var(--gd);padding:6px 8px;min-width:78px;text-align:center;background:var(--bg2)}
+.cell.nx{border-color:var(--y);color:var(--y);box-shadow:0 0 8px var(--y)}.cell.rd{opacity:.45}
+.q{border:1px solid var(--bd);padding:10px;margin:12px 0;background:var(--bg2)}
+.lv{color:var(--bg);background:var(--y);padding:0 6px;font-size:12px}
+.q button.o{display:block;width:100%;text-align:left;margin:4px 0}
+.ok{color:var(--g)}.no{color:var(--r)}mark{background:var(--y);color:#000}
+#tip{position:fixed;left:0;right:0;bottom:env(safe-area-inset-bottom,0px);background:#000;border-top:2px solid var(--y);padding:10px 14px;display:none;z-index:9;color:var(--g)}
+#tip b{color:var(--y)}label{display:block;margin:5px 0}
+.p::before{content:"$ ";color:var(--y)}
+</style></head><body>
+<header><h1>root@printf:~$ ./ft_printf_lab</h1><p>Understand variadic functions, then pass the exercises, then push.</p></header>
+<nav id="nav"></nav>
+<main>
+<section id="learn">
+<h2 class="p">man variadic</h2>
+<p>Tap any <span class="t">yellow dotted word</span> to see what it means. A {variadic} function (like printf) has {ellipsis} after its named parameters. It has no idea how many extra arguments came, or their types.</p>
+<h3>1. Where the caller puts arguments (Linux x86-64, {abi})</h3>
+<table><tr><td>{rdi}<td>{rsi}<td>{rdx}<td>{rcx}<td>{r8}<td>{r9}<tr><td>1st<td>2nd<td>3rd<td>4th<td>5th<td>6th</table>
+<p>These are {register}s. Anything after the 6th integer or pointer goes on the {stack}, one 8-byte {slot} each. Floats use {xmm0} and friends. The caller also sets {rax}. In ft_printf, {rdi} holds the {fmt}.</p>
+<h3>2. va_start saves the registers into memory</h3>
+<p>Registers have no addresses, so {va_start} copies them into a block of memory and fills in a {struct}:</p>
+<pre>typedef struct {
+  unsigned int gp_offset;      // next int arg in the saved block
+  unsigned int fp_offset;      // next float arg
+  void *overflow_arg_area;     // next arg that lives on the stack
+  void *reg_save_area;         // the saved registers
+} va_list[1];                  // 24 bytes</pre>
+<h3>3. va_arg moves a bookmark</h3>
+<pre>if (gp_offset &lt; 48) { v = *(reg_save_area + gp_offset); gp_offset += 8; }
+else                  { v = *overflow_arg_area; overflow_arg_area += 8; }</pre>
+<p>See it live in the Lab tab. The type you give {va_arg} decides how many bytes are read.</p>
+<h3>4. Rules that follow from this</h3>
+<ul><li>{promotion}: read a char with va_arg(ap, int), never char.</li>
+<li>Wrong type, or reading too many arguments, is {ub}.</li>
+<li>Every {va_start} needs a {va_end}, also on early returns.</li>
+<li>Pass va_list *ap to helpers so one real bookmark moves. Use {va_copy} to read twice.</li></ul>
+<h3>5. Your ft_printf plan</h3>
+<ol><li>Loop over the {fmt}. Normal char: write it, count it.</li>
+<li>On %, read the next letter and call one small helper for that {conversion}.</li>
+<li>Add what each helper returns. If any returns -1, {va_end} and return -1.</li>
+<li>Return the total.</li></ol>
+</section>
+
+<section id="lab" hidden>
+<h2 class="p">lab 1: watch va_arg</h2>
+<p>Simulates show(n, 10, 20, ...) on x86-64. {rdi} holds the count, so the first value starts in {rsi}. Yellow = next read, dim = already read.</p>
+<label>variadic args: <b id="nv">7</b> <input type="range" id="n" min="1" max="10" value="7"></label>
+<button id="st">va_arg ▶</button> <button id="rs">reset</button>
+<div id="regs" class="row"></div><div id="stk" class="row"></div><pre id="info"></pre>
+<h2 class="p">lab 2: format string walker</h2>
+<p>Your main loop, step by step. Edit the format and the comma-separated arguments.</p>
+<label>format <input type="text" id="fm" value="Hi %s, %d%% in hex: %x"></label>
+<label>args <input type="text" id="ag" value="Sam,42,255"></label>
+<button id="s2">step ▶</button> <button id="a2">run all</button> <button id="r2">reset</button>
+<pre id="fv"></pre><pre id="o2"></pre>
+</section>
+
+<section id="quiz" hidden>
+<h2 class="p">exercises</h2>
+<p id="sc"></p><div id="fl" class="row"></div><div id="qs"></div>
+</section>
+
+<section id="gloss" hidden>
+<h2 class="p">glossary</h2>
+<input type="text" id="gs" placeholder="search: rdi, stack, ub ...">
+<div id="gl"></div>
+</section>
+
+<section id="push" hidden>
+<h2 class="p">ready to push?</h2>
+<p>Tick everything before you submit. Progress is saved on this device.</p>
+<div id="ck"></div><p id="cs"></p>
+</section>
+</main>
+<div id="tip"></div>
+<script>
+var G={rdi:"CPU register holding the 1st integer or pointer argument (x86-64 System V). In ft_printf: the format string.",rsi:"Register for the 2nd argument.",rdx:"Register for the 3rd argument.",rcx:"Register for the 4th argument.",r8:"Register for the 5th argument.",r9:"Register for the 6th and last register argument. Further ones go on the stack.",rax:"Register for return values. Before a variadic call the caller also stores in it how many vector registers carry arguments.",rsp:"Stack pointer: register holding the address of the top of the stack.",xmm0:"First of 8 vector registers (xmm0 to xmm7) that carry float and double arguments.",register:"Tiny fast storage inside the CPU. It is not memory, so it has no address you can walk through.",stack:"Memory used for local variables and extra arguments. Each argument slot is 8 bytes.",slot:"An 8-byte cell in a register save area or on the stack. Every argument takes one.",abi:"Application Binary Interface: rules compilers follow so code agrees on where arguments and return values go.",variadic:"A function taking a variable number of arguments, written with ... after the named ones.",ellipsis:"The three dots ... in a prototype, meaning more arguments may follow.",va_list:"Type from stdarg.h that holds the reading state. On x86-64 it is an array of 1 struct, 24 bytes.",va_start:"va_start(ap, last): starts reading after the last named parameter and saves the argument registers to memory.",va_arg:"va_arg(ap, type): returns the next argument as type, then moves the bookmark.",va_end:"va_end(ap): cleanup. Required once for every va_start and every va_copy.",va_copy:"va_copy(dst, src): copies a va_list with its current position so you can read the same arguments twice.",gp_offset:"va_list field: byte offset of the next integer argument in the register save area. Grows by 8. At 48 the registers are used up.",fp_offset:"Like gp_offset but for float arguments (xmm registers). Goes from 48 up to 176.",overflow_arg_area:"va_list field: pointer to the next argument passed on the stack. Used once gp_offset reaches 48.",reg_save_area:"va_list field: pointer to the block where va_start copied the registers.",promotion:"Default argument promotion: in the ... part, char and short become int and float becomes double.",ub:"Undefined behavior: the C standard sets no rule. It may crash, print garbage, or seem fine.",sentinel:"A special last value, like NULL, marking the end of a list instead of passing a count.",fmt:"Format string: the first argument of printf. Plain text plus % conversions.",conversion:"A % plus a letter (c s p d i u x X %) saying how to print the next argument.",write:"write(fd, buf, n) sends n bytes to a file descriptor. Returns bytes written, or -1 on error.",fd:"File descriptor: number of an open file. 0 stdin, 1 stdout, 2 stderr.",null:"The null pointer (address 0). glibc printf prints (null) for %s and (nil) for %p.",stdarg:"Header stdarg.h: gives va_list, va_start, va_arg, va_end, va_copy.",struct:"A group of named fields stored together in memory.",offset:"A distance in bytes from a starting address.",pointer:"A variable that stores a memory address.",unsigned:"Number type with no negatives. -1 read as unsigned int is 4294967295.",hex:"Hexadecimal, base 16: digits 0-9 and a-f. 255 is ff.",int_min:"Smallest int, -2147483648. Its positive value does not fit, so -n overflows.",buffer:"Memory that collects data before sending it. Real printf buffers; yours may call write directly.",norm:"The 42 coding style rules, for example functions of at most 25 lines.",flag:"Optional char after % in the bonus (- 0 # space +) that changes formatting."};
+var $=function(s){return document.querySelector(s)};
+var esc=function(s){return s.replace(/[&<>]/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;"}[c]})};
+var T=function(s){return s.replace(/\{(\w+)\}/g,function(m,k){return G[k]?'<b class="t" data-k="'+k+'">'+k+'</b>':m})};
+var ld=function(k){try{return JSON.parse(localStorage.getItem(k)||"{}")}catch(e){return{}}};
+var sv=function(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}};
+var tabs=[["learn","Learn"],["lab","Lab"],["quiz","Exercises"],["gloss","Glossary"],["push","Push check"]];
+function show(id){tabs.forEach(function(t){$("#"+t[0]).hidden=t[0]!=id});document.querySelectorAll("#nav button").forEach(function(b){b.className=b.dataset.t==id?"on":""})}
+$("#nav").innerHTML=tabs.map(function(t){return '<button data-t="'+t[0]+'">'+t[1]+'</button>'}).join("");
+$("#nav").onclick=function(e){if(e.target.dataset.t)show(e.target.dataset.t)};
+document.addEventListener("click",function(e){var t=e.target.closest(".t"),p=$("#tip");if(t){var k=t.dataset.k;p.innerHTML="<b>"+k+"</b> — "+esc(G[k]);p.style.display="block"}else p.style.display="none"});
+document.querySelectorAll("#learn p,#learn td,#learn li").forEach(function(e){e.innerHTML=T(e.innerHTML)});
+document.querySelectorAll("#lab p").forEach(function(e){e.innerHTML=T(e.innerHTML)});
+
+/* LAB 1 */
+var n=7,gp=8,ov=0,k1=0,last="",V=[10,20,30,40,50,60,70,80,90,100],R=["rdi","rsi","rdx","rcx","r8","r9"];
+function d1(){var h="";R.forEach(function(r,i){var v=i?(i-1<n?V[i-1]:"-"):"n="+n,c="cell"+(i&&gp<48&&gp==i*8?" nx":"")+(i&&i*8<gp?" rd":"");h+='<div class="'+c+'"><b class="t" data-k="'+r+'">'+r+"</b><br>"+v+"</div>"});
+$("#regs").innerHTML=h;var s="";for(var j=0;j<Math.max(n-5,0);j++){s+='<div class="cell'+(gp>=48&&ov==j?" nx":"")+(j<ov?" rd":"")+'">stack+'+j*8+"<br>"+V[5+j]+"</div>"}
+$("#stk").innerHTML=s||"<i>(all arguments fit in registers)</i>";
+$("#info").textContent="gp_offset         = "+gp+"\noverflow_arg_area = stack+"+ov*8+"\nreads so far      = "+k1+"\n"+last}
+function r1(){n=+$("#n").value;$("#nv").textContent=n;gp=8;ov=0;k1=0;last="va_start done: registers saved, gp_offset = 8 (rdi used by the count)";d1()}
+$("#n").oninput=r1;$("#rs").onclick=r1;
+$("#st").onclick=function(){if(k1>=n){last="UB: only "+n+" arguments were passed. This read would be garbage."}else if(gp<48){last="va_arg read "+V[k1]+" from the register save area";gp+=8;k1++}else{last="va_arg read "+V[k1]+" from the stack";ov++;k1++}d1()};
+r1();
+
+/* LAB 2 */
+var S=[],K=0;
+function b2(){var f=$("#fm").value,a=$("#ag").value.split(","),res=[],o="",ai=0;
+for(var i=0;i<f.length;i++){var c=f[i],s=i,t;
+if(c!="%"){o+=c;t="normal character "+c+" -> print it"}
+else if(i+1>=f.length){res.push([s,s,"lone % at the end -> stop and return -1",o]);break}
+else{var x=f[++i];
+if(x=="%"){o+="%";t="%% -> print one % (uses no argument)"}
+else if("cdisuxXp".indexOf(x)>=0){if(ai>=a.length){res.push([s,i,"%"+x+" but no argument left -> undefined behavior",o]);break}
+var g=a[ai++],q=parseInt(g),v=x=="c"?(g[0]||""):x=="s"?g:(x=="d"||x=="i")?String(q|0):x=="u"?String(q>>>0):x=="p"?"0x"+(q>>>0).toString(16):x=="x"?(q>>>0).toString(16):(q>>>0).toString(16).toUpperCase();
+o+=v;t="%"+x+" -> next argument ("+g+") -> print "+v}
+else{o+="%"+x;t="%"+x+" is not a valid conversion -> print both characters (one valid choice)"}}
+res.push([s,i,t,o])}
+S=res;K=0;d2()}
+function d2(){var f=$("#fm").value,r=S[K-1],h="";for(var i=0;i<f.length;i++){var ch=esc(f[i]);h+=(r&&i>=r[0]&&i<=r[1])?"<mark>"+ch+"</mark>":ch}
+$("#fv").innerHTML=h||"(empty)";var o=r?r[3]:"";
+$("#o2").textContent="step "+K+"/"+S.length+"\n"+(r?r[2]:"press step")+"\noutput so far: ["+o+"]\nreturn value so far: "+o.length}
+$("#fm").oninput=b2;$("#ag").oninput=b2;$("#r2").onclick=b2;
+$("#s2").onclick=function(){if(K<S.length)K++;d2()};$("#a2").onclick=function(){K=S.length;d2()};b2();
+
+/* EXERCISES */
+var LV=["Easy","Medium","Hard","Boss"];
+var Q=[
+{l:0,q:"Which header gives you {va_list} and {va_arg}?",o:["stdio.h","stdarg.h","unistd.h","stdlib.h"],a:1,e:"stdarg.h declares all the va_ tools."},
+{l:0,q:"Which register holds the first integer argument on Linux x86-64?",o:["rdi","rsi","rax","rsp"],a:0,e:"Order: rdi, rsi, rdx, rcx, r8, r9."},
+{l:0,q:"How many integer or pointer arguments travel in registers before the {stack} is used?",a:"6",e:"rdi, rsi, rdx, rcx, r8, r9."},
+{l:0,q:"Every {va_start} must be paired with...",o:["va_arg","va_copy","va_end","nothing"],a:2,e:"Also on early returns."},
+{l:1,q:"You need a char from the ... part. What is right?",o:["va_arg(ap, char)","(char)va_arg(ap, int)","va_arg(ap, short)","va_arg(ap, void)"],a:1,e:"{promotion}: a char travels as an int."},
+{l:1,q:"How many characters does ft_printf(\"%c\", 0) return? (it prints one NUL byte)",a:"1",e:"The NUL byte is a real character. Do not rely on strlen for %c."},
+{l:1,q:"What does real printf(\"%s\", NULL) print on glibc?",o:["(null)","nothing","it crashes","NULL"],a:0,e:"Your ft_putstr must print (null) and return 6."},
+{l:1,q:"For show(4, 10, 20, 30, 40): what is {gp_offset} right after va_start? (Lab 1 shows it)",a:"8",e:"rdi took slot 0 (the count), so the next offset is 8."},
+{l:1,q:"Same call: gp_offset after all 4 va_arg reads?",a:"40",e:"8 + 4 x 8 = 40."},
+{l:2,q:"Why do helpers take va_list *ap instead of va_list ap?",o:["va_list is too big for registers","after a helper reads by value, the caller’s list is indeterminate","pointers are faster","the Norm requires it"],a:1,e:"Pass a pointer so every va_arg moves the one real bookmark."},
+{l:2,q:"show(8, 10, 20, 30, 40, 50, 60, 70, 80): which value is the FIRST one read from the stack?",a:"60",e:"rsi to r9 take 10 to 50, so 60 spills onto the stack."},
+{l:2,q:"How do you safely print {int_min} in ft_putnbr?",o:["-n then print","convert to long first","skip the sign","use unsigned char"],a:1,e:"-INT_MIN does not fit in an int (overflow)."},
+{l:2,q:"What does printf(\"%x\", -1) print? (32-bit int)",a:"ffffffff",e:"-1 read as unsigned int is 0xffffffff."},
+{l:2,q:"{write} fails (returns -1) in the middle of ft_printf. Best behavior?",o:["ignore it and continue","add -1 to the count","stop, call va_end, return -1","call exit"],a:2,e:"Like real printf: report the error."},
+{l:3,q:"What does f(2, 10, 3) return?",c:"int f(int n, ...)\n{\n  va_list a;\n  va_start(a, n);\n  int x = va_arg(a, int);\n  int y = va_arg(a, int);\n  va_end(a);\n  return x - y;\n}",a:"7",e:"x = 10, y = 3."},
+{l:3,q:"What does ft_printf(\"%d%%\", 100) return?",a:"4",e:"It prints 100% which is 4 characters."},
+{l:3,q:"Real glibc printf(\"%p\", NULL) prints...",o:["0x0","(nil)","0x00000000","nothing"],a:1,e:"macOS prints 0x0. Match the platform you are tested on."},
+{l:3,q:"printf(\"%u\", -1) prints (32-bit int)...",o:["-1","0","4294967295","4294967296"],a:2,e:"2^32 - 1, because of {unsigned}."},
+{l:3,q:"sizeof(va_list) on x86-64 Linux, in bytes?",a:"24",e:"Two 4-byte offsets plus two 8-byte pointers."}];
+var done=ld("pfq"),fil=-1;
+function sc(){var d=Object.keys(done).length;$("#sc").textContent="Score: "+d+"/"+Q.length+(d==Q.length?"  ALL CLEAR":"");
+$("#fl").innerHTML=['<button data-f="-1"'+(fil<0?' class="on"':"")+">All</button>"].concat(LV.map(function(n,l){var t=0,c=0;Q.forEach(function(q,i){if(q.l==l){t++;if(done[i])c++}});return '<button data-f="'+l+'"'+(fil==l?' class="on"':"")+">"+n+" "+c+"/"+t+"</button>"})).join("")}
+function rq(){sc();$("#qs").innerHTML=Q.map(function(q,i){if(fil>=0&&q.l!=fil)return"";var h='<div class="q"><span class="lv">'+LV[q.l]+"</span> #"+(i+1)+(done[i]?' <span class="ok">✔</span>':"")+"<p>"+T(q.q)+"</p>"+(q.c?"<pre>"+esc(q.c)+"</pre>":"");
+if(q.o)h+=q.o.map(function(o,j){return '<button class="o" data-i="'+i+'" data-j="'+j+'">'+esc(o)+"</button>"}).join("");
+else h+='<input type="text" id="i'+i+'" placeholder="your answer"> <button class="ck" data-i="'+i+'">check</button>';
+return h+'<div id="f'+i+'"></div></div>'}).join("")}
+$("#fl").onclick=function(e){if(e.target.dataset.f){fil=+e.target.dataset.f;rq()}};
+$("#qs").onclick=function(e){var b=e.target,i=b.dataset.i;if(i==null)return;var q=Q[i],v=q.o?+b.dataset.j:$("#i"+i).value,ok=q.o?v==q.a:q.a.split("|").indexOf(String(v).trim().toLowerCase())>=0;
+if(ok){done[i]=1;sv("pfq",done)}$("#f"+i).innerHTML='<p class="'+(ok?"ok":"no")+'">'+(ok?"✔ correct. ":"✘ not quite. ")+T(q.e)+"</p>";sc()};
+rq();
+
+/* GLOSSARY */
+function rg(){var s=$("#gs").value.toLowerCase();$("#gl").innerHTML=Object.keys(G).sort().filter(function(k){return !s||k.indexOf(s)>=0||G[k].toLowerCase().indexOf(s)>=0}).map(function(k){return '<p><b class="t" data-k="'+k+'">'+k+"</b> — "+esc(G[k])+"</p>"}).join("")}
+$("#gs").oninput=rg;rg();
+
+/* PUSH CHECK */
+var C=["va_start and va_end are paired (also on early returns)","Returns the number of printed characters","Returns -1 if write fails","%c with 0 prints one NUL byte (returns 1)","%s with NULL prints (null)","%p with NULL prints (nil) on Linux or 0x0 on macOS","%d and %i handle INT_MIN","%u, %x and %X handle 0 and UINT_MAX","%% prints one percent sign","A lone % at the end does not crash","Helpers take va_list *ap, no global variables","Makefile builds libftprintf.a, no relink, has clean/fclean/re","Norm passes (norminette), no forbidden functions","Compared with real printf using the test file, no KO","README.md has the required first line and sections"];
+var cd=ld("pfc");
+function rc(){$("#ck").innerHTML=C.map(function(t,i){return '<label><input type="checkbox" data-i="'+i+'"'+(cd[i]?" checked":"")+"> "+esc(t)+"</label>"}).join("");var n=Object.keys(cd).filter(function(k){return cd[k]}).length;$("#cs").textContent=n+"/"+C.length+(n==C.length?" ready to push! 🚀":"")}
+$("#ck").onchange=function(e){cd[e.target.dataset.i]=e.target.checked?1:0;sv("pfc",cd);rc()};rc();
+show("learn");
+</script></body></html>
